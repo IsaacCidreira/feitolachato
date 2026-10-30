@@ -1,0 +1,747 @@
+<title>Feitola Simulator</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@500;600;700;800;900&family=VT323&display=swap" rel="stylesheet">
+<style>
+/* Layout: palco da live (canvas pixel art) à esquerda + chat à direita; empilha no celular. Tema único escuro de propósito (cara de live). */
+:root{
+  --bg:#0c0a12; --panel:#15121d; --panel2:#211b30; --line:#2d2742;
+  --fg:#efeaf7; --muted:#a39bbd; --green:#31c25f; --yellow:#ffd23f; --red:#ff4d5e; --violet:#9a7bff;
+  --disp:'Rubik', system-ui, 'Segoe UI', Arial, sans-serif;
+  --chat:'VT323', ui-monospace, Menlo, monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{background:var(--bg);color:var(--fg)}
+body{font-family:var(--chat);font-size:20px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px}
+button{font:inherit;color:inherit}
+.app{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
+.top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px}
+.brand{display:flex;flex-direction:column;gap:2px}
+.brand h1{font-family:var(--disp);font-weight:900;font-style:italic;font-size:clamp(26px,4.2vw,40px);line-height:1;margin:0;color:var(--yellow);text-shadow:3px 3px 0 #1f8a3e,6px 6px 0 #07050b;letter-spacing:1px}
+.brand small{color:var(--muted);font-size:19px}
+.brand small b{color:var(--yellow);font-weight:normal}
+.stats{display:flex;gap:8px;flex-wrap:wrap;align-items:stretch}
+.stat{background:var(--panel);padding:6px 12px;display:flex;flex-direction:column;min-width:92px;box-shadow:inset 0 0 0 2px var(--line)}
+.stat b{font-family:var(--disp);font-weight:600;font-size:20px;font-variant-numeric:tabular-nums;line-height:1.1}
+.stat span{font-size:15px;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:12px}
+.col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.stage{position:relative;width:100%;aspect-ratio:5/3;max-width:100%;background:#000;box-shadow:0 0 0 3px var(--line);overflow:hidden}
+canvas{display:block;width:100%;height:100%;image-rendering:pixelated;image-rendering:crisp-edges}
+.chip{position:absolute;font-family:var(--disp);font-weight:600;font-size:clamp(11px,1.5vw,15px);padding:3px 8px;line-height:1.2;letter-spacing:.5px}
+.live{top:8px;left:8px;background:var(--red);color:#fff}
+.server{top:8px;right:8px;background:#000c;color:var(--yellow);box-shadow:inset 0 0 0 2px var(--yellow)}
+.state{top:38px;right:8px;background:var(--green);color:#04130a}
+.state.warn{background:var(--yellow);color:#231a00}
+.state.danger{background:var(--red);color:#fff;animation:pulse .3s steps(2) infinite}
+@keyframes pulse{50%{transform:scale(1.08)}}
+.bubble{position:absolute;left:4%;bottom:52%;max-width:62%;background:#fff;color:#111;font-family:var(--disp);font-weight:600;font-size:clamp(12px,1.8vw,17px);line-height:1.25;padding:8px 12px;box-shadow:0 0 0 3px #000,5px 5px 0 3px #000}
+.bubble::after{content:"";position:absolute;left:18px;bottom:-15px;border:7px solid transparent;border-top-color:#000}
+.toast{position:absolute;left:50%;top:22%;transform:translateX(-50%);font-family:var(--disp);font-weight:600;font-size:clamp(11px,1.6vw,16px);background:#000d;color:var(--green);box-shadow:inset 0 0 0 2px var(--green);padding:5px 10px;white-space:nowrap;max-width:92%;overflow:hidden;text-overflow:ellipsis}
+.toast.bad{color:var(--red);box-shadow:inset 0 0 0 2px var(--red)}
+.redflash{position:absolute;inset:0;background:var(--red);opacity:0;pointer-events:none}
+.redflash.on{animation:rf .35s ease-out}
+@keyframes rf{0%{opacity:.45}100%{opacity:0}}
+.overlay{position:absolute;inset:0;background:#07050ceb;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:12px;overflow:auto}
+.overlay h2{font-family:var(--disp);font-weight:900;font-style:italic;margin:0;font-size:clamp(22px,4.6vw,44px);line-height:1;color:var(--yellow);text-shadow:3px 3px 0 #1f8a3e}
+.overlay p{margin:0;max-width:46ch;font-size:clamp(17px,2.3vw,22px)}
+.overlay .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+.ban h2{color:var(--red);text-shadow:4px 4px 0 #000;font-size:clamp(34px,8vw,72px)}
+.banstats{display:grid;grid-template-columns:repeat(2,auto);gap:2px 18px;font-size:clamp(17px,2.2vw,21px);text-align:left}
+.banstats b{color:var(--yellow);font-family:var(--disp);font-weight:600;font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+
+/* ---- medidores ---- */
+.meters{display:grid;grid-template-columns:2fr 1fr 1.4fr;gap:8px}
+.meter{background:var(--panel);box-shadow:inset 0 0 0 2px var(--line);padding:8px 12px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.meter .lbl{display:flex;justify-content:space-between;gap:8px;font-size:16px;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
+.meter .lbl b{color:var(--fg);font-family:var(--disp);font-weight:600;font-size:15px;letter-spacing:0}
+.bar{height:14px;background:#0a0810;box-shadow:inset 0 0 0 2px #000;position:relative;overflow:hidden}
+.bar i{position:absolute;inset:2px auto 2px 2px;background:var(--green);width:0%}
+#rageBar i{background:linear-gradient(90deg,var(--green),var(--yellow) 50%,var(--red))}
+.track{font-family:var(--disp);font-weight:500;font-size:16px;color:var(--yellow);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ---- botões estilo tecla de arcade ---- */
+.key{--k:var(--panel2);--hi:#3b3256;--lo:#110d1a;--accent:var(--yellow);
+  background:var(--k);border:0;cursor:pointer;text-align:left;padding:10px 12px 12px;
+  display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:2px 10px;min-width:0;
+  box-shadow:inset 3px 3px 0 var(--hi),inset -3px -3px 0 var(--lo),0 5px 0 #06040a;transition:transform .05s}
+.key:hover:not(:disabled){--k:#2a2340}
+.key:active:not(:disabled){transform:translateY(4px);box-shadow:inset 3px 3px 0 var(--lo),inset -3px -3px 0 var(--hi),0 1px 0 #06040a}
+.key:focus-visible{outline:3px solid var(--yellow);outline-offset:3px}
+.key:disabled{filter:grayscale(.8) brightness(.6);cursor:not-allowed}
+.key .num{grid-row:1/3;width:28px;height:28px;display:grid;place-items:center;background:var(--accent);color:#120d00;
+  font-family:var(--disp);font-weight:700;font-size:17px;box-shadow:inset -3px -3px 0 rgba(0,0,0,.28),inset 2px 2px 0 rgba(255,255,255,.35)}
+.key .name{font-family:var(--disp);font-weight:800;font-size:clamp(13px,1.25vw,15px);line-height:1.1;letter-spacing:0;text-transform:uppercase}
+.key .meta{font-family:var(--disp);font-weight:500;font-size:12px;line-height:1.2;color:var(--muted)}
+.key.risk{--accent:var(--red)}
+.key.move{--accent:var(--violet)}
+.key.pix{--accent:var(--green);--k:#14261b;--hi:#24432f;--lo:#07120b}
+.key.gift{--accent:var(--violet);--k:#211a38;--hi:#352b58;--lo:#0f0b1c}
+.key.plain{--accent:#d8d2e8}
+.key.primary{--k:#3a2e05;--hi:#6b5410;--lo:#1a1402}
+.key.center{grid-template-columns:auto;justify-items:center;text-align:center;padding:12px 18px 14px}
+.key.center .name{font-size:17px}
+.orders{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+.powers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.key.like{--accent:var(--green)}
+.gameover{font-family:var(--disp);font-weight:900;font-style:italic;font-size:clamp(18px,3.4vw,30px);color:var(--yellow);letter-spacing:3px}
+
+/* ---- chat ---- */
+.chat{background:var(--panel);box-shadow:inset 0 0 0 2px var(--line);display:flex;flex-direction:column;min-height:0;min-width:0}
+.chat header{font-family:var(--disp);font-weight:600;font-size:15px;padding:10px 12px;border-bottom:2px solid var(--line);color:var(--muted);display:flex;justify-content:space-between;letter-spacing:.5px}
+#chatList{flex:1;overflow-y:auto;padding:8px 12px;display:flex;flex-direction:column;gap:3px;min-height:0;height:0}
+.msg{line-height:1.05;overflow-wrap:anywhere}
+.msg .n{font-weight:bold}
+.badge{display:inline-block;font-family:var(--disp);font-weight:700;font-size:11px;padding:1px 4px;margin-right:4px;vertical-align:2px}
+.b-sub{background:var(--green);color:#03140a}
+.b-mod{background:#2f9bff;color:#001a33}
+.b-str{background:var(--red);color:#fff}
+.msg.me{background:#ffd23f14;margin-inline:-6px;padding-inline:6px}
+.msg.sys{color:var(--muted);font-style:italic}
+.msg.hl{background:#9a7bff22;margin-inline:-6px;padding-inline:6px}
+.chat footer{border-top:2px solid var(--line);padding:8px 12px;font-size:18px;color:var(--muted)}
+.chat footer b{color:var(--yellow);font-weight:normal}
+.chat footer.to{color:var(--red)}
+
+/* ---- tutorial ---- */
+.modal{position:fixed;inset:0;z-index:20;background:#05030ae6;display:flex;align-items:center;justify-content:center;
+  padding:max(16px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) max(16px,env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.tut{width:min(560px,100%);max-height:100%;overflow:auto;background:var(--panel);box-shadow:inset 0 0 0 3px var(--line),8px 8px 0 #000;padding:22px;display:flex;flex-direction:column;gap:14px}
+.tut .step{font-family:var(--disp);font-weight:600;font-size:15px;color:var(--muted);letter-spacing:1px}
+.tut h3{margin:0;font-family:var(--disp);font-weight:800;font-size:clamp(24px,4vw,32px);line-height:1.05;color:var(--yellow);text-wrap:balance}
+.tut .body{display:flex;flex-direction:column;gap:10px;font-size:21px;line-height:1.15}
+.tut .body p{margin:0}
+.tut .demo{display:flex;flex-direction:column;gap:8px;background:#0b0911;padding:12px;box-shadow:inset 0 0 0 2px var(--line)}
+.tut .demo div{display:flex;gap:10px;align-items:center}
+.tag{font-family:var(--disp);font-weight:600;font-size:14px;padding:2px 8px;white-space:nowrap}
+.tag.ok{background:var(--green);color:#04130a}.tag.warn{background:var(--yellow);color:#231a00}.tag.bad{background:var(--red);color:#fff}
+.tag.vi{background:var(--violet);color:#120a2a}
+.tut nav{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.dots{display:flex;gap:6px}
+.dots i{width:10px;height:10px;background:var(--line)}
+.dots i.on{background:var(--yellow)}
+
+@media (max-width:880px){
+  .grid{grid-template-columns:minmax(0,1fr)}
+  .chat{height:280px}
+  .orders{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .orders .key:last-child{grid-column:1/-1}
+  .powers{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .powers .key:last-child{grid-column:1/-1}
+  .meters{grid-template-columns:1fr 1fr}
+  .meters .meter:first-child{grid-column:1/-1}
+}
+@media (prefers-reduced-motion:reduce){.state.danger,.redflash.on{animation:none}.key{transition:none}}
+</style>
+
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <h1>FEITOLA SIMULATOR</h1>
+      <small>live de jacarepereira · você é o <b>feitola</b>, o sub que acha que é patrão</small>
+    </div>
+    <div class="stats">
+      <div class="stat"><span>Pontos</span><b id="sPts">0</b></div>
+      <div class="stat"><span>Combo</span><b id="sCombo">x1</b></div>
+      <div class="stat"><span>Tempo</span><b id="sTime">0:00</b></div>
+      <div class="stat"><span>Nível</span><b id="sLvl">1</b></div>
+      <div class="stat"><span>Recorde</span><b id="sBest">0</b></div>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="col">
+      <div class="stage" id="stage">
+        <canvas id="cv" width="200" height="120"></canvas>
+        <div class="chip live">● AO VIVO · <span id="viewers">1.284</span></div>
+        <div class="chip server" id="serverName">CAPITAL · POLICIAL</div>
+        <div class="chip state" id="state">DISTRAÍDO</div>
+        <div class="bubble" id="bubble" hidden></div>
+        <div class="toast" id="toast" hidden></div>
+        <div class="redflash" id="flash"></div>
+
+        <div class="overlay" id="startOv">
+          <h2>BATATINHA FRITA 1, 2, 3</h2>
+          <p>Mande na live do Jacaré enquanto ele não está olhando o chat. Se ele te pegar, é timeout. Se encher o saco dele, é BAN.</p>
+          <div class="row">
+            <button class="key plain center" id="howBtn1"><span class="name">COMO JOGAR</span></button>
+            <button class="key primary center" id="startBtn"><span class="name">ENTRAR NA LIVE</span></button>
+          </div>
+        </div>
+
+        <div class="overlay ban" id="banOv" hidden>
+          <div class="gameover">GAME OVER</div>
+          <h2>BANIDO</h2>
+          <p>Você foi banido da live. jacarepereira baniu <b style="color:var(--yellow)">feitola</b> do canal.</p>
+          <div class="banstats">
+            <span>Tempo como patrão</span><b id="bTime">0:00</b>
+            <span>Pontos</span><b id="bPts">0</b>
+            <span>Ordens obedecidas</span><b id="bOrd">0</b>
+            <span>Timeouts levados</span><b id="bTo">0</b>
+          </div>
+          <p class="muted" id="bLine"></p>
+          <button class="key primary center" id="againBtn"><span class="name">CRIAR CONTA FAKE E VOLTAR</span></button>
+        </div>
+      </div>
+
+      <div class="meters">
+        <div class="meter">
+          <div class="lbl">Raiva do Jacaré <b id="rageTxt">de boa</b></div>
+          <div class="bar" id="rageBar"><i id="rageFill"></i></div>
+        </div>
+        <div class="meter">
+          <div class="lbl">Volume da voz <b id="volTxt">100%</b></div>
+          <div class="bar"><i id="volFill" style="width:100%"></i></div>
+        </div>
+        <div class="meter">
+          <div class="lbl">Tocando agora</div>
+          <div class="track" id="trackTxt">Pagodinho da Capital</div>
+        </div>
+      </div>
+
+      <div class="orders" id="orders"></div>
+
+      <div class="powers">
+        <button class="key pix" id="pixBtn"><span class="num">P</span><span class="name">MANDAR PIX</span><span class="meta">40 pts · 2 ordens livres</span></button>
+        <button class="key gift" id="giftBtn"><span class="num">S</span><span class="name">DAR 5 SUBS</span><span class="meta">60 pts · raiva −35</span></button>
+        <button class="key plain" id="howBtn2"><span class="num">?</span><span class="name">COMO JOGAR</span><span class="meta">pausa o jogo</span></button>
+      </div>
+    </section>
+
+    <aside class="chat">
+      <header><span>CHAT DA LIVE</span><span id="chatCount">0 msgs</span></header>
+      <div id="chatList" aria-live="polite"></div>
+      <footer id="chatFoot">Enviando como <b>feitola</b> · sub há 14 meses</footer>
+    </aside>
+  </main>
+</div>
+
+<div class="modal" id="tutOv" hidden>
+  <div class="tut" role="dialog" aria-modal="true" aria-labelledby="tutTitle">
+    <div class="step" id="tutStep">PASSO 1 DE 5</div>
+    <h3 id="tutTitle"></h3>
+    <div class="body" id="tutBody"></div>
+    <nav>
+      <button class="key plain center" id="tutPrev"><span class="name">VOLTAR</span></button>
+      <div class="dots" id="tutDots"></div>
+      <button class="key primary center" id="tutNext"><span class="name">PRÓXIMO</span></button>
+    </nav>
+  </div>
+</div>
+
+<script>
+(()=>{
+const cv=document.getElementById('cv'),g=cv.getContext('2d');
+const $=id=>document.getElementById(id);
+const R=(x,y,w,h,c)=>{g.fillStyle=c;g.fillRect(Math.round(x),Math.round(y),w,h);};
+const rand=(a,b)=>a+Math.random()*(b-a);
+const pick=a=>a[Math.floor(Math.random()*a.length)];
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+
+/* ---------- conteúdo ---------- */
+const ROLES=['policial','prefeito','bandido'];
+const TRACKS=['Pagodinho da Capital','Funk da Viatura','Arrocha do Gabinete','Trap do Bandido','Ópera do TrueBlood','Forró da Meia-Noite','Sertanejo de Sofrência'];
+const ORDERS=[
+  {id:'baixo',label:'FALA BAIXO',cls:'',msg:['fala baixo jacaré','ABAIXA ESSA VOZ','fala mais baixo, o patrão mandou'],pts:10,rage:18},
+  {id:'musica',label:'MUDA A MÚSICA',cls:'',msg:['muda essa música','troca a música aí','essa música tá ruim, muda'],pts:10,rage:18},
+  {id:'gordo',label:'CHAMA DE GORDO',cls:'risk',msg:['fala gordo','e aí gordo','GORDO KKKKK'],pts:18,rage:28},
+  {id:'sai',label:'SAI DA CAPITAL',cls:'move',msg:['sai da capital','SAI DA CAPITAL AGORA','sai desse servidor'],pts:30,rage:34},
+  {id:'tb',label:'VAI PRO TRUEBLOOD',cls:'move',msg:['vai pro trueblood','bora trueblood','vai jogar trueblood agora'],pts:30,rage:34}
+];
+const LINES={
+  all:['CALADO, FEITOLA!','VAI TÁ BANIDO, hein!','CARA CHATO!','Vai tomar, feitola!','Eu sou um ator, feitola. Você não sabe de nada.','Quer mandar na live? Me manda um pix.'],
+  policial:['Tô em ocorrência, feitola! CALADO.'],
+  prefeito:['EU SOU PREFEITO, ME RESPEITA!'],
+  bandido:['Calado, feitola, tô no corre aqui.'],
+  vampiro:['EU, UM SEMI-DEUS, VOU ATURAR ISSO?'],
+  papo:['Tô conversando com o chat e você vem com isso? CARA CHATO!']
+};
+const MOVE_LINES={capital:['JÁ FALEI QUE EU QUE MANDO AQUI, NÃO VOU SAIR DA CAPITAL!','SE FALAR DA CAPITAL VOU BANIR!','SE MANDAR EU SAIR VOU BANIR!'],
+  other:['SE MANDAR EU SAIR VOU BANIR!','JÁ FALEI QUE EU QUE MANDO AQUI!']};
+const BORDOES={all:['SERÁ FEITO!','SOU UM ARTISTA!','SOU UM ATOR!','MORDOMOUXX!'],
+  prefeito:['EU SOU PREFEITO, ME RESPEITA!'],
+  vampiro:['SOU UM VAMPIRO, VOU PEGAR MINHA PRESA... AUUUUU!','EU, UM SEMI-DEUS.'],
+  papo:['E aí chat, tudo certo?','Fala comigo, chat.','Tô lendo tudo aqui, hein chat.']};
+const MONEY=['Chat, me ajuda a comprar um PS5!','Bora bater a meta do PC novo, chat!','Falta pouco pro carro novo, hein!','Meu celular tá morrendo, ajuda a trocar aí!','Ativa o Prime aí, é de graça!','Segue o canal, chat!','Bora bater 50 subs hoje!','Quem quiser mandar um pix, a chave tá aí.','Compartilha a live com os amigos!'];
+const GORDO_LINES=['Gordo é você, feitola! TOMA UM T.O AÍ.','Me chamou de quê? CALADO, FEITOLA!','CARA CHATO. Timeout!'];
+const TIMEOUT_LINES=['TOMA UM T.O AÍ PRA FICAR DE BOA.','Toma timeout, feitola. CARA CHATO.','CALADO, FEITOLA. Timeout.'];
+const BAN_LINES=['VAI TÁ BANIDO!','Avisei, feitola. BANIDO!','CARA CHATO. BANIDO!'];
+const DRINK_LINES=['Peraí, vou tomar meu achocolatado pra ficar de boa.','Calma... achocolatado no canudinho.','Deixa eu tomar meu toddynho aqui.'];
+const TARGET={capital:{sai:'papo',tb:'trueblood'},trueblood:{sai:'papo',tb:'capital'},papo:{sai:'capital',tb:'trueblood'}};
+const LABELS={capital:{sai:'SAI DA CAPITAL',tb:'VAI PRO TRUEBLOOD'},trueblood:{sai:'SAI DO TRUEBLOOD',tb:'VOLTA PRA CAPITAL'},papo:{sai:'VAI PRA CAPITAL',tb:'VAI PRO TRUEBLOOD'}};
+const PLACE={capital:'a Capital',trueblood:'o TrueBlood',papo:'a conversa com o chat'};
+const CAPS=[{c:'#6d7076',h:'#8d9198',s:'#4f5257',b:'#45484d'},{c:'#e8e5de',h:'#ffffff',s:'#c4c0b6',b:'#cfcbc2'},{c:'#7b7b52',h:'#96966b',s:'#5e5e3d',b:'#66663f'},{c:'#232323',h:'#454545',s:'#121212',b:'#141414'}];
+const newLook=()=>({cap:pick(CAPS),shirt:pick(['brasil','preta','azul'])});
+const PIX_LINES=['Pix caiu... tá bom, hoje você manda. Só hoje.','Opa, pix! Fala aí, patrão.'];
+const GIFT_LINES=['Opa, 5 subs! Obrigado... mas continua chato.','Valeu pelos subs, feitola. Ainda te acho chato.'];
+const VIEWERS=[['dudu_rp','#7ad3ff'],['lekinho22','#ff9f43'],['mariazinha_vamp','#ff6bcb'],['tio_bigodes','#9cff6b'],['naruto_da_zl','#ffb3b3'],['kaiodoido','#c79bff'],['vovo_gamer','#5cf0c8'],['ana_capital','#ffd36b'],['zeca_pagodeiro','#8fb4ff']];
+const CHATTER=['KKKKKKKK','jacaré o melhor da capital','feitola de novo kkkk','esse feitola é chato demais','sou muito ruim kkkk','prefeito mais honesto da cidade','semi deus KKKKK','alguém bane o feitola','o patrão chegou','manda pix feitola','eu ri','ele nem viu kkkk','salve jacaré','fala baixo kkkkk','chat tá caótico hoje','que RP bom','o homem tá focado','trueblood hoje?','fica na capital jacaré'];
+const CAUGHT_CHATTER=['BAN BAN BAN','toma feitola KKKK','pegou no flagra','KKKKKKKKKKK','feitola não aprende','F pro feitola','o semi deus ficou bravo','olha a raiva do homem kkk'];
+
+/* ---------- estado ---------- */
+let S,best=0,muted=false,audio=null,paused=false;
+try{best=+localStorage.getItem('feitola_best')||0}catch(e){}
+function fresh(){return{running:false,t:0,elapsed:0,pts:0,combo:1,raiva:0,orders:0,timeouts:0,
+  att:'jogando',attT:0,attDur:3,fake:false,server:'capital',role:0,serverT:14,roleT:0,timeoutLeft:0,pix:0,volume:100,track:0,
+  action:null,actionT:0,charX:140,charDir:-1,switchT:0,switched:false,switchTo:'trueblood',talkT:0,chatT:1,viewers:1284,
+  lvl:0,drinkT:0,drinkCD:rand(6,9),bordT:4,nextRP:'trueblood',look:newLook()};}
+S=fresh();
+
+const level=()=>Math.floor(S.elapsed/20);
+const diffMul=()=>Math.max(.3,1-.1*level());
+const outfit=()=>S.server==='trueblood'?'vampiro':S.server==='papo'?'papo':ROLES[S.role];
+function nextJogando(){S.att='jogando';S.attT=0;S.attDur=(S.server==='papo'?rand(.9,2):rand(2.2,4.6))*diffMul();}
+function turnProg(){const p=Math.min(1,S.attT/S.attDur);return S.att==='jogando'?0:S.att==='virando'?p:S.att==='lendo'?1:1-p;}
+
+/* ---------- som ---------- */
+function beep(){}
+
+/* ---------- chat ---------- */
+const chatList=$('chatList');let chatN=0;
+function chat(name,text,opt={}){
+  const d=document.createElement('div');d.className='msg'+(opt.me?' me':'')+(opt.sys?' sys':'')+(opt.hl?' hl':'');
+  if(opt.sys)d.textContent=text;
+  else{
+    if(opt.str){const b=document.createElement('span');b.className='badge b-str';b.textContent='LIVE';d.append(b);}
+    if(opt.mod){const b=document.createElement('span');b.className='badge b-mod';b.textContent='MOD';d.append(b);}
+    if(opt.sub){const b=document.createElement('span');b.className='badge b-sub';b.textContent='SUB';d.append(b);}
+    const n=document.createElement('span');n.className='n';n.style.color=opt.color||'#ccc';n.textContent=name;
+    d.append(n,document.createTextNode(': '+text));
+  }
+  const atBottom=chatList.scrollHeight-chatList.scrollTop-chatList.clientHeight<40;
+  chatList.append(d);chatN++;$('chatCount').textContent=chatN+' msgs';
+  while(chatList.children.length>80)chatList.firstChild.remove();
+  if(atBottom||opt.me||opt.str)chatList.scrollTop=chatList.scrollHeight;
+}
+const viewerSay=t=>{const v=pick(VIEWERS);chat(v[0],t,{color:v[1],sub:Math.random()<.4});};
+const modSay=t=>chat('moderadorzinho',t,{color:'#2f9bff',mod:true});
+const meSay=t=>chat('feitola',t,{color:'#ffd23f',sub:true,me:true});
+const jacSay=t=>chat('jacarepereira',t,{color:'#31c25f',str:true});
+
+/* ---------- falas e efeitos ---------- */
+const bubble=$('bubble'),toastEl=$('toast');let toastT=0;
+function say(t){bubble.textContent=t;bubble.hidden=false;S.talkT=2.6;jacSay(t);}
+function toast(t,bad){toastEl.textContent=t;toastEl.classList.toggle('bad',!!bad);toastEl.hidden=false;toastT=1.6;}
+function flash(){const f=$('flash');f.classList.remove('on');void f.offsetWidth;f.classList.add('on');}
+
+function obey(o){
+  switch(o.id){
+    case 'baixo':S.volume=Math.max(10,S.volume-30);return 'abaixou a voz sem perceber';
+    case 'musica':S.track=(S.track+1)%TRACKS.length;return 'trocou pra: '+TRACKS[S.track];
+    case 'gordo':return 'ele nem leu, sorte sua';
+    case 'sai':case 'tb':{const to=TARGET[S.server][o.id];startSwitch(to);return 'foi pra '+PLACE[to]+' sem perceber!';}
+  }
+}
+function startSwitch(to){if(S.switchT>0)return;S.switchTo=to;S.switchT=.9;S.switched=false;beep(200,.4,'sawtooth',.04,-150);}
+
+function spec(o){
+  if(o.id!=='sai'&&o.id!=='tb')return{pts:o.pts,rage:o.rage,kind:o.id==='gordo'?'risk':'normal'};
+  if(S.server==='capital'||(S.server==='trueblood'&&o.id==='sai'))return{pts:30,rage:34,kind:'hate'};
+  if((S.server==='trueblood'&&o.id==='tb')||(S.server==='papo'&&o.id==='sai'))return{pts:12,rage:0,kind:'like'};
+  return{pts:15,rage:18,kind:'neutral'};
+}
+function sendOrder(i){
+  if(!S.running||paused||S.timeoutLeft>0)return;
+  const o=ORDERS[i];if((o.id==='sai'||o.id==='tb')&&S.switchT>0)return;
+  meSay(orderMsg(o));
+  const sp=spec(o);
+  if(sp.kind==='like'&&turnProg()>=.5){
+    S.pts+=sp.pts;S.orders++;obey(o);say(pick(['Isso! Volta pra Capital, aí sim, feitola.','Capital é minha casa. Bora!','Aí sim, falou bonito.']));
+    toast('+'+sp.pts+' · ele gostou da ideia');updateHud();return;
+  }
+  if(S.pix>0){
+    S.pix--;const gain=sp.pts*2;S.pts+=gain;S.orders++;const fx=obey(o);
+    toast('+'+gain+' · PIX ATIVO · '+fx);beep(880,.08);beep(1320,.12);
+    if(S.pix===0)setTimeout(()=>S.running&&say('Acabou o pix, acabou a moral.'),700);
+    updateHud();return;
+  }
+  if(turnProg()<.5){
+    const gain=sp.pts*S.combo;S.pts+=gain;S.combo=Math.min(8,S.combo+1);S.orders++;
+    S.raiva=Math.min(100,S.raiva+2);const fx=obey(o);
+    toast('+'+gain+' · '+fx);beep(660+S.combo*60,.07);
+    if(Math.random()<.35)setTimeout(()=>viewerSay(pick(['ele nem viu kkkk','obedeceu KKKK','o patrão manda mesmo','KKKKKKKK'])),400);
+    if(Math.random()<.3)setTimeout(()=>S.running&&meSay(pick(['bom funcionário','isso, obedece','vai levar advertência se não fizer'])),900);
+  }else caught(o,sp);
+  updateHud();
+}
+function orderMsg(o){
+  if(o.id==='sai'||o.id==='tb'){const l=LABELS[S.server][o.id].toLowerCase();return pick([l,l.toUpperCase()+' AGORA',l+', o patrão mandou']);}
+  return pick(o.msg);
+}
+
+function caught(o,sp){
+  const before=S.raiva,move=sp.kind==='hate';
+  S.combo=1;S.raiva=Math.min(100,S.raiva+sp.rage*(1+.06*level()));
+  flash();beep(140,.25,'sawtooth',.06,-60);
+  if(S.raiva>=100||(move&&before>=60)){
+    say(move?'Avisei: mandou eu sair, VAI TÁ BANIDO!':pick(BAN_LINES));S.raiva=100;S.running=false;updateButtons();setTimeout(ban,1300);return;}
+  const moveLine=()=>pick(S.server==='capital'?MOVE_LINES.capital:MOVE_LINES.other);
+  if(o.id==='gordo'||(S.raiva>=45&&Math.random()<.65)){
+    say(o.id==='gordo'?pick(GORDO_LINES):move?moveLine():pick(TIMEOUT_LINES));
+    S.timeoutLeft=6;S.timeouts++;chat('','feitola levou timeout de 6 segundos.',{sys:true});updateButtons();
+  }else say(move?moveLine():pick(LINES.all.concat(LINES[outfit()],LINES[outfit()])));
+  toast('PEGO NO FLAGRA',true);
+  const n=1+Math.floor(Math.random()*3);for(let k=0;k<n;k++)setTimeout(()=>viewerSay(pick(CAUGHT_CHATTER)),300+k*350);
+}
+
+function buyPix(){
+  if(!S.running||paused||S.timeoutLeft>0)return;
+  if(S.pts<40){toast('Faltam pontos pro pix',true);return;}
+  S.pts-=40;S.pix=2;meSay('mandei um pix de R$ 2,00 pra ter moral');
+  chat('','feitola enviou um Pix de R$ 2,00.',{sys:true,hl:true});
+  setTimeout(()=>S.running&&say(pick(PIX_LINES)),400);beep(990,.1,'triangle',.06);beep(1480,.15,'triangle',.05);
+  toast('PIX: 2 ordens sem bronca');updateHud();
+}
+function buyGift(){
+  if(!S.running||paused||S.timeoutLeft>0)return;
+  if(S.pts<60){toast('Faltam pontos pros subs',true);return;}
+  S.pts-=60;S.raiva=Math.max(0,S.raiva-35);
+  chat('','feitola deu 5 subs de presente para o chat!',{sys:true,hl:true});
+  setTimeout(()=>S.running&&say(pick(GIFT_LINES)),400);
+  for(let k=0;k<3;k++)setTimeout(()=>viewerSay(pick(['valeu pelo sub feitola','obrigado patrão','o chato pagou os subs kkk'])),600+k*300);
+  beep(523,.1,'triangle');setTimeout(()=>beep(784,.15,'triangle'),100);toast('raiva −35');updateHud();
+}
+
+function ban(){
+  $('bTime').textContent=fmt(S.elapsed);$('bPts').textContent=Math.floor(S.pts);
+  $('bOrd').textContent=S.orders;$('bTo').textContent=S.timeouts;
+  const p=Math.floor(S.pts);
+  if(p>best){best=p;try{localStorage.setItem('feitola_best',best)}catch(e){}$('bLine').textContent='Novo recorde de patrão. O Jacaré vai negar até a morte.';}
+  else $('bLine').textContent='Recorde: '+best+' pontos. Ele vai dizer que nunca te conheceu.';
+  $('sBest').textContent=best;
+  chat('','feitola foi banido permanentemente.',{sys:true});
+  $('banOv').hidden=false;beep(400,.6,'square',.06,-320);
+}
+
+function start(){
+  const sv=S.server,rl=S.role;S=fresh();S.server=sv;S.role=rl;S.running=true;nextJogando();
+  $('startOv').hidden=true;$('banOv').hidden=true;
+  chat('','feitola entrou no chat.',{sys:true});
+  setTimeout(()=>say('Ih, chegou o feitola. Lá vem.'),600);
+  updateButtons();updateHud();
+}
+
+/* ---------- HUD ---------- */
+const fmt=s=>Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0');
+function updateHud(){
+  $('sPts').textContent=Math.floor(S.pts);$('sCombo').textContent='x'+S.combo;$('sTime').textContent=fmt(S.elapsed);$('sLvl').textContent=level()+1;
+  $('rageFill').style.width='calc('+S.raiva+'% - 4px)';
+  $('rageTxt').textContent=S.raiva<30?'de boa':S.raiva<55?'irritado':S.raiva<80?'PUTO':'VAI BANIR';
+  $('volFill').style.width='calc('+S.volume+'% - 4px)';$('volTxt').textContent=Math.round(S.volume)+'%';
+  $('trackTxt').textContent='♪ '+(S.server==='papo'?'Live de DJ no fundo':TRACKS[S.track]);
+  $('serverName').textContent=S.server==='trueblood'?'TRUEBLOOD · SEMI-DEUS':S.server==='papo'?'CONVERSANDO COM O CHAT · DJ':'CAPITAL · '+ROLES[S.role].toUpperCase();
+  const tp=turnProg(),st=$('state');
+  if(S.drinkT>0){st.textContent='TOMANDO ACHOCOLATADO';st.className='chip state';}
+  else if(S.att==='lendo'||(S.att!=='jogando'&&tp>=.5)){st.textContent='LENDO O CHAT';st.className='chip state danger';}
+  else if(S.att==='virando'){st.textContent='VIRANDO...';st.className='chip state warn';}
+  else{st.textContent=S.server==='papo'?'OUVINDO MÚSICA':'DISTRAÍDO';st.className='chip state';}
+  const f=$('chatFoot');
+  if(S.timeoutLeft>0){f.className='to';f.textContent='Timeout: você volta a falar em '+Math.ceil(S.timeoutLeft)+'s';}
+  else if(S.pix>0){f.className='';f.innerHTML='Enviando como <b>feitola</b> · PIX ativo: '+S.pix+' ordem(ns) sem bronca';}
+  else{f.className='';f.innerHTML='Enviando como <b>feitola</b> · sub há 14 meses';}
+  $('viewers').textContent=S.viewers.toLocaleString('pt-BR');
+}
+const orderBox=$('orders');
+ORDERS.forEach((o,i)=>{const b=document.createElement('button');b.className='key '+o.cls;b.id='ord'+i;
+  b.innerHTML='<span class="num">'+(i+1)+'</span><span class="name"></span><span class="meta"></span>';
+  b.onclick=()=>sendOrder(i);orderBox.append(b);});
+function updateButtons(){
+  const dis=!S.running||S.timeoutLeft>0;
+  ORDERS.forEach((o,i)=>{const b=$('ord'+i);b.disabled=dis;
+    const l=(o.id==='sai'||o.id==='tb')?LABELS[S.server][o.id]:o.label;
+    b.querySelector('.name').textContent=l;const sp=spec(o);
+    b.className='key '+({risk:'risk',hate:'risk',like:'like',neutral:'move'}[sp.kind]||'');
+    b.querySelector('.meta').textContent='+'+sp.pts+' pts · '+(sp.kind==='like'?'ele gosta':'raiva +'+sp.rage+(sp.kind==='hate'?' · ele odeia':''));});
+  $('pixBtn').disabled=dis;$('giftBtn').disabled=dis;
+}
+$('startBtn').onclick=start;$('againBtn').onclick=start;
+$('pixBtn').onclick=buyPix;$('giftBtn').onclick=buyGift;
+
+
+/* ---------- tutorial ---------- */
+const TUT=[
+  {t:'Você é o feitola',b:'<p>O sub chato que acha que é patrão do Jacaré Pereira. Seu objetivo é mandar na live o máximo de tempo possível sem ser banido.</p><p class="muted">Cada ordem que ele obedece te dá pontos de patrão.</p>'},
+  {t:'Olhe a webcam e o selo',b:'<p>Quando ele está com a cabeça virada pro jogo, ele não lê o chat. Aí você manda.</p><div class="demo"><div><span class="tag ok">DISTRAÍDO</span> pode mandar à vontade</div><div><span class="tag warn">VIRANDO...</span> cuidado, às vezes ele finge e volta</div><div><span class="tag bad">LENDO O CHAT</span> se mandar agora, ele te pega</div><div><span class="tag ok">ACHOCOLATADO</span> quando ele toma achocolatado no canudinho, não lê nada e a raiva baixa rápido. Aproveita.</div></div>'},
+  {t:'Como ganhar pontos',b:'<p>Use os botões ou as teclas <b>1</b> a <b>5</b>. Se ele estiver distraído, ele faz o que você mandou <b>sem perceber</b>: abaixa a voz, troca a música, muda de servidor. Cada vez que isso acontece, você ganha pontos.</p><div class="demo"><div><span class="tag ok">x2 x3 x4…</span> ordens seguidas sem ser pego aumentam o combo até x8</div><div><span class="tag bad">GORDO</span> vale mais, mas se ele ler é timeout na hora</div></div>'},
+  {t:'Raiva, timeout e BAN',b:'<p>Toda vez que ele te pega, a raiva sobe e o combo zera. Com a raiva alta ele te dá <b>timeout</b> de 6 segundos. Raiva no máximo é <b>BAN</b> e fim de jogo.</p><div class="demo"><div><span class="tag ok">PIX · 40 pts</span> tecla P: 2 ordens sem levar bronca</div><div><span class="tag vi">5 SUBS · 60 pts</span> tecla S: baixa 35 de raiva</div></div><p class="muted">A raiva também baixa sozinha enquanto ele está distraído.</p>'},
+  {t:'Fica mais difícil com o tempo',b:'<p>A cada 20 segundos sobe um <b>nível</b>. Ele passa a virar pro chat mais rápido, lê por mais tempo e começa a <b>virar do nada</b>, sem o aviso amarelo.</p><div class="demo"><div><span class="tag warn">NÍVEL 1</span> dá pra ver ele virando com calma</div><div><span class="tag bad">NÍVEL 5+</span> ele vira sem aviso a toda hora</div></div><p class="muted">O jogo acaba quando você leva BAN: aparece GAME OVER com seus pontos.</p>'},
+  {t:'Servidores e papo com o chat',b:'<p>Na <b>CAPITAL</b> ele vai trocando de personagem: policial, prefeito e bandido. No <b>TRUEBLOOD</b> ele é o vampiro que se acha semi-deus.</p><p>Às vezes ele sai do jogo pra <b>conversar com o chat</b> com uma live de DJ de fundo. Nessa hora ele lê o chat muito mais: as janelas pra mandar ficam curtas.</p><div class="demo"><div><span class="tag bad">SAIR</span> ele odeia que mandem ele sair. Se ler com a raiva alta, é BAN direto</div><div><span class="tag ok">VOLTA PRA CAPITAL</span> isso ele gosta: mesmo se ler, não fica bravo</div></div>'}
+];
+let tutI=0,tutWasRunning=false;
+const dots=$('tutDots');TUT.forEach(()=>dots.append(document.createElement('i')));
+function renderTut(){
+  const s=TUT[tutI];$('tutStep').textContent='PASSO '+(tutI+1)+' DE '+TUT.length;
+  $('tutTitle').textContent=s.t;$('tutBody').innerHTML=s.b;
+  [...dots.children].forEach((d,i)=>d.classList.toggle('on',i===tutI));
+  $('tutPrev').disabled=tutI===0;
+  $('tutNext').querySelector('.name').textContent=tutI<TUT.length-1?'PRÓXIMO':(S.running?'VOLTAR PRO JOGO':'ENTRAR NA LIVE');
+}
+function openTut(){tutI=0;paused=true;$('tutOv').hidden=false;renderTut();$('tutNext').focus();}
+function closeTut(){$('tutOv').hidden=true;paused=false;}
+$('howBtn1').onclick=openTut;$('howBtn2').onclick=openTut;
+$('tutPrev').onclick=()=>{if(tutI>0){tutI--;renderTut();}};
+$('tutNext').onclick=()=>{if(tutI<TUT.length-1){tutI++;renderTut();}else{closeTut();if(!S.running&&$('banOv').hidden)start();}};
+
+addEventListener('keydown',e=>{
+  if(e.repeat)return;const k=e.key.toLowerCase();
+  if(!$('tutOv').hidden){if(k==='escape')closeTut();else if(k==='arrowright')$('tutNext').click();else if(k==='arrowleft')$('tutPrev').click();return;}
+  if(k>='1'&&k<='5')sendOrder(+k-1);else if(k==='p')buyPix();else if(k==='s')buyGift();
+  else if((k==='enter'||k===' ')&&!S.running&&(!$('startOv').hidden||!$('banOv').hidden)){e.preventDefault();start();}
+});
+
+/* ---------- pixel art: utilidades ---------- */
+function seeded(seed){let s=seed;return()=>(s=(s*16807)%2147483647)/2147483647;}
+function circle(cx,cy,r,c){for(let dy=-r;dy<=r;dy++){const w=Math.floor(Math.sqrt(r*r-dy*dy));R(cx-w,cy+dy,w*2+1,1,c);}}
+const sky=(()=>{const r=seeded(7),a=[];for(let i=0;i<40;i++)a.push([r()*200|0,r()*50|0,r()]);return a;})();
+const city=(()=>{const r=seeded(42),a=[];let x=58;while(x<200){const w=8+r()*14|0,h=14+r()*30|0;const win=[];
+  for(let wy=4;wy<h-3;wy+=4)for(let wx=2;wx<w-2;wx+=3)if(r()<.35)win.push([wx,wy]);a.push({x,w,h,win});x+=w+1;}return a;})();
+const specks=(()=>{const r=seeded(99),a=[];for(let i=0;i<60;i++)a.push([r()*200|0,90+(r()*30|0)]);return a;})();
+
+/* ---------- cenários (ciclo de 16 frames) ---------- */
+function bgPolicial(f){
+  R(0,0,200,26,'#090c1b');R(0,26,200,22,'#11132c');R(0,48,200,26,'#1a1636');
+  sky.forEach(([x,y,b])=>{if((f+(b*16|0))%16<14)R(x,y,1,1,b>.7?'#fff':'#8a8fb8');});
+  city.forEach(b=>{R(b.x,74-b.h,b.w,b.h,'#0c0e1d');b.win.forEach(([wx,wy],i)=>R(b.x+wx,74-b.h+wy,1,2,(i+f)%11?'#e7c45a':'#6b5a2a'));});
+  R(0,73,200,1,'#646a7c');R(0,74,200,14,'#1d2029');
+  for(let x=0;x<200;x+=10){R(x,76,5,2,'#c8333d');R(x+5,76,5,2,'#d8d3cb');}
+  R(0,88,200,32,'#23252e');for(let x=(f*2)%16-16;x<200;x+=16)R(x,104,8,1,'#b8a845');
+  const red=f<8;
+  g.fillStyle=red?'rgba(255,40,60,.16)':'rgba(40,110,255,.16)';g.fillRect(56,62,52,42);
+  R(64,89,34,8,'#10141f');R(70,84,20,6,'#10141f');R(72,85,16,3,'#3b4b68');R(75,90,11,5,'#e9e9e9');
+  R(77,82,4,2,red?'#ff2a3a':'#5a1a20');R(81,82,4,2,red?'#1a2a5a':'#2e7bff');
+  R(67,96,5,3,'#000');R(90,96,5,3,'#000');R(96,91,2,2,'#ffe9a0');
+  R(178,76,6,4,'#4a3a30');R(177,80,8,22,'#5d6c88');R(177,101,3,2,'#ccc');R(182,101,3,2,'#ccc');
+  R(8,5,5,5,'#e2323f');R(9,10,3,1,'#e2323f');R(10,11,1,2,'#e2323f');R(10,7,1,1,'#fff');
+}
+function bgPrefeito(f){
+  // gabinete: papel de parede verde com flor-de-lis dourada e madeira
+  R(0,0,200,64,'#1d4f2a');
+  for(let y=6;y<60;y+=10)for(let x=((y/10|0)%2)*6+4;x<200;x+=12){R(x,y,1,3,'#c9a54a');R(x-1,y+1,3,1,'#c9a54a');R(x,y+3,1,1,'#8d7130');}
+  R(0,62,200,2,'#8a5a2b');R(0,64,200,26,'#5a3417');
+  for(let x=4;x<200;x+=24){R(x,68,18,18,'#4c2b12');R(x+1,69,16,1,'#7a4a22');}
+  R(0,90,200,30,'#3a2210');for(let y=94;y<120;y+=6)R(0,y,200,1,'#2c1909');
+  // mesa e bandeira
+  R(122,74,44,4,'#6e4320');R(124,78,4,12,'#4c2b12');R(160,78,4,12,'#4c2b12');R(140,70,8,4,'#e8e0cc');
+  R(176,30,1,60,'#c9a54a');R(177,30,16,11,'#1f8a3e');R(181,32,8,7,'#ffd23f');R(183,34,4,3,'#2a6fd6');
+  // quadro
+  R(70,14,22,28,'#8a5a2b');R(72,16,18,24,'#20160e');R(77,20,8,8,'#c9a54a');R(76,30,10,6,'#3a2a1a');
+  // lustre piscando de leve
+  const fl=f%8<6?.12:.08;g.fillStyle='rgba(255,230,170,'+fl+')';g.fillRect(96,0,40,40);
+  R(115,0,1,8,'#c9a54a');R(108,8,16,3,'#c9a54a');for(let i=0;i<4;i++)R(109+i*4,11,2,2,f%16<14?'#fff4c8':'#d9c88a');
+}
+function bgBandido(f){
+  // esconderijo rosa com abajur (como nas lives)
+  R(0,0,200,68,'#6a1a5e');
+  for(let y=4;y<66;y+=8)for(let x=(y/8%2)*4;x<200;x+=8)R(x,y,2,2,'#7b2570');
+  R(0,68,200,1,'#ff3fd0');R(0,69,200,21,'#270d25');R(0,90,200,30,'#120e17');
+  specks.forEach(([x,y],i)=>R(x,y,1,1,i%3?'#3a2f1e':'#8a6d2a'));
+  [118,160].forEach(x=>{R(x,12,30,42,'#5c3a1d');R(x+2,14,26,38,'#0a0e22');
+    for(let i=0;i<6;i++)R(x+4+i*4,30+(i*7)%16,1,1,(i+f)%5?'#ffcf6a':'#6a4a2a');R(x+14,14,2,38,'#5c3a1d');});
+  R(70,10,18,26,'#1d0a2b');R(78,13,2,6,'#ff4fd8');R(76,18,4,2,'#ff4fd8');R(77,20,2,8,'#ff4fd8');R(72,30,14,3,'#ff4fd8');
+  const fl=f%8<6?.14:.09;g.fillStyle='rgba(255,240,200,'+fl+')';g.fillRect(86,16,34,34);
+  R(96,26,13,9,'#f4efe4');R(101,35,2,20,'#c9a54a');R(92,55,21,3,'#dcdcdc');R(94,51,4,4,'#fff');R(95,49,2,2,'#e8e8e8');
+}
+function bat(x,y,f){const up=f%4<2,c='#050003';R(x,y,2,2,c);if(up){R(x-3,y-2,3,1,c);R(x+2,y-2,3,1,c);R(x-2,y-1,2,1,c);R(x+2,y-1,2,1,c);}
+  else{R(x-3,y+2,3,1,c);R(x+2,y+2,3,1,c);R(x-2,y+1,2,1,c);R(x+2,y+1,2,1,c);}}
+function bgTrueblood(f){
+  R(0,0,200,40,'#12040a');R(0,40,200,30,'#22060f');R(0,70,200,20,'#350a16');
+  circle(152,24,15,f<8?'#5a0d1c':'#7a1226');circle(152,24,12,'#e9dcc4');R(147,20,3,2,'#d4c4a8');R(155,27,2,2,'#d4c4a8');
+  R(66,34,12,56,'#0b0207');R(96,20,14,70,'#0b0207');R(78,52,44,38,'#0b0207');R(120,40,10,50,'#0b0207');
+  for(let x=66;x<78;x+=4)R(x,31,2,3,'#0b0207');for(let x=96;x<110;x+=4)R(x,17,2,3,'#0b0207');
+  R(101,28,3,5,f%16<12?'#ff2a3a':'#7a1020');R(70,44,2,4,'#ff2a3a');R(123,50,2,3,'#ff2a3a');
+  for(let i=0;i<4;i++){const bx=((S.t*18+i*57)%230)-15,by=12+i*8+Math.round(Math.sin(S.t*3+i)*3);bat(bx,by,f+i);}
+  R(0,90,200,30,'#1d0b12');
+  [[150,82],[166,84],[186,81]].forEach(([x,y])=>{R(x,y,7,10,'#3b2a33');R(x+3,y-4,1,4,'#3b2a33');R(x+1,y-3,5,1,'#3b2a33');});
+  for(let x=-20;x<200;x+=24)R(x+(f*1.5|0),96+(x/24%2)*3,16,1,'rgba(220,180,200,.18)');
+}
+
+/* ---------- personagem do RP (andar em 16 frames) ---------- */
+function drawChar(cx,feet,f,out,dir){
+  const skin='#5b3a29',gold='#f2c230';
+  const hair='#ece0a6';
+  const bob=(f%8>=4)?-1:0;
+  const top=feet-30+bob;
+  const torso={policial:'#1a2440',prefeito:'#18181c',bandido:'#2b2b33',vampiro:'#111014'}[out];
+  g.save();g.translate(Math.round(cx),0);g.scale(dir,1);
+  const P=(x,y,w,h,c)=>{g.fillStyle=c;g.fillRect(x,Math.round(y),w,h);};
+  if(out==='vampiro'){const a=.12+.1*Math.sin(f/16*Math.PI*2);g.fillStyle='rgba(255,30,60,'+a+')';g.fillRect(-10,top-4,20,36);
+    const fl=[0,0,1,1,2,2,1,1,0,0,-1,-1,0,0,1,1][f];P(-6,top+8,12,17,'#3a050c');P(-7-Math.max(0,fl),top+12,2,13+fl,'#8e0f1e');}
+  const stride=Math.round(Math.sin(f/16*Math.PI*2)*2);
+  P(-3+stride,top+18,3,10,'#262b38');P(-stride,top+18,3,10,'#262b38');
+  P(-3+stride,top+28,4,2,'#0c0c0c');P(-stride,top+28,4,2,'#0c0c0c');
+  P(-4,top+8,8,10,torso);
+  if(out==='policial'){P(-3,top+10,1,1,'#ffd23f');P(-4,top+17,8,1,'#05070d');P(2,top+12,2,2,'#2c3a5e');}
+  if(out==='prefeito'){P(-1,top+8,2,10,'#2c2c32');P(-4,top+11,1,2,'#3a3a40');P(3,top+11,1,2,'#3a3a40');P(-4,top+17,8,1,'#0a0a0c');}
+  if(out==='bandido'){P(-1,top+8,2,5,'#e6e6e6');P(-4,top+8,1,6,'#3a3a44');P(3,top+8,1,6,'#3a3a44');}
+  if(out==='vampiro'){P(-4,top+8,1,7,'#8e0f1e');P(3,top+8,1,7,'#8e0f1e');P(-1,top+8,2,4,'#3a0a10');}
+  P(-2,top+8,1,1,gold);P(-1,top+9,1,1,gold);P(0,top+10,1,1,gold);P(1,top+9,1,1,gold);P(2,top+8,1,1,gold);P(0,top+11,1,2,gold);
+  if(out==='bandido'){
+    // fuzil segurado na diagonal
+    P(-5,top+14,1,2,skin);P(4,top+11,1,2,skin);
+    P(-7,top+15,4,2,'#2a2016');P(-3,top+14,9,2,'#151515');P(6,top+13,4,1,'#151515');P(0,top+16,2,3,'#151515');
+    P(-5,top+9,1,5,torso);P(4,top+9,1,2,torso);
+  }else{
+    const sw=f<8?1:-1;P(-5,top+9+sw,1,7,torso);P(-5,top+16+sw,1,1,skin);P(4,top+9-sw,1,7,torso);P(4,top+16-sw,1,1,skin);
+  }
+  P(-1,top+7,2,1,skin);P(-3,top+1,6,6,skin);P(-3,top,6,2,hair);P(-3,top+2,1,1,hair);
+  if(out==='vampiro'){const e=f%16<14?'#ff2a3a':'#7a0a14';P(-2,top+3,1,1,e);P(1,top+3,1,1,e);P(2,top+3,1,1,e);P(-1,top+6,1,1,'#fff');P(1,top+6,1,1,'#fff');}
+  else{P(-3,top+3,6,1,'#070707');P(1,top+3,1,1,'#5a5a5a');}
+  P(-1,top+5,3,2,'#e3e3e3');P(-2,top+5,1,1,'#e3e3e3');
+  g.restore();
+  R(cx-6,feet,12,1,'rgba(0,0,0,.45)');
+}
+
+/* ---------- webcam do streamer (gordinho, boné, respira, vira a cabeça, fala, toma achocolatado) ---------- */
+function drawCam(f){
+  const X=3,Y=60,W=58,H=57;
+  g.save();g.beginPath();g.rect(X,Y,W,H);g.clip();g.translate(X,Y);
+  const tp=turnProg(),off=Math.round((1-tp)*3);
+  const angry=S.raiva>=50,drinking=S.drinkT>0;
+  const shake=(S.raiva>70&&tp>.5&&S.running&&!drinking)?(f%2?1:-1):0;
+  const b=f<8?0:1;
+  const skin='#9a6446',skinD='#7f4f36',beard='#1c130e';
+  const cap=S.look.cap,shirt=S.look.shirt;
+  R(0,0,W,H,'#2a2236');R(0,2,W,1,'#6b57c0');
+  R(6,10,46,47,'#0d0b11');R(8,12,42,45,'#17141e');
+  const hx=16+Math.round((1-tp)*1)+shake;
+  // corpo largo: ombros e braços grossos, barriga
+  const sc=shirt==='brasil'?'#1f8a3e':shirt==='preta'?'#141414':'#1f2b46';
+  if(shirt==='azul'){R(0,40+b,58,17,sc);R(0,50+b,5,7,skin);R(53,50+b,5,7,skin);R(22,40+b,14,2,skin);R(24,42+b,10,1,skin);}
+  else{
+    R(0,42+b,8,15,skin);R(50,42+b,8,15,skin);R(1,41+b,6,1,skin);R(51,41+b,6,1,skin);
+    R(7,40+b,44,17,sc);R(7,40+b,7,3,skin);R(44,40+b,7,3,skin);R(20,40+b,18,2,skin);R(23,42+b,12,1,skin);
+    R(8,54+b,42,1,'rgba(0,0,0,.25)');
+    if(shirt==='brasil'){for(let i=0;i<6;i++)R(16+i*5,47+b,4,3,'#ffd23f');R(16,48+b,29,1,'#1f8a3e');R(16,51+b,29,1,'#ffd23f');R(39,43+b,5,4,'#ffd23f');R(40,44+b,3,2,'#2a6fd6');}
+    else{R(38,47+b,1,1,'#eee');R(39,48+b,1,1,'#eee');R(40,47+b,1,1,'#eee');R(41,46+b,1,1,'#eee');R(42,45+b,1,1,'#eee');}
+  }
+  // cabeça grande e redonda, bochechas, papada
+  R(hx,16,26,24,skin);R(hx-1,20,1,16,skin);R(hx+26,20,1,16,skin);
+  R(hx-4,21,4,10,'#0e0e0e');R(hx+26,21,4,10,'#0e0e0e');R(hx-4,23,1,5,'#3a3a3a');
+  R(hx,22,2,9,beard);R(hx+24,22,2,9,beard);
+  R(hx-1,30,28,10,beard);R(hx,40,26,2,beard);R(hx+2,42,22,1,beard);
+  R(hx+4,30,18,1,'#2a1d15');
+  // boné: copa com contorno, costura, botão e aba
+  R(hx+2,3,22,1,'#000');R(hx,4,2,1,'#000');R(hx+24,4,2,1,'#000');R(hx-1,5,1,12,'#000');R(hx+26,5,1,12,'#000');
+  R(hx+2,4,22,1,cap.c);R(hx,5,26,12,cap.c);
+  R(hx+3,5,10,1,cap.h);R(hx+2,6,3,4,cap.h);
+  R(hx+13,4,1,11,cap.s);R(hx+12,2,3,1,cap.s);R(hx+12,3,3,1,cap.c);
+  R(hx,15,26,2,cap.s);
+  if(tp>.5){R(hx-3,16,32,3,cap.b);R(hx-4,18,2,1,cap.b);R(hx+28,18,2,1,cap.b);R(hx-3,16,32,1,cap.h);R(hx-1,19,28,1,'rgba(0,0,0,.45)');}
+  else{R(hx+6+off,15,24,3,cap.b);R(hx+6+off,15,24,1,cap.h);R(hx+6+off,18,19,1,'rgba(0,0,0,.45)');}
+  // sobrancelhas e olhos
+  const eb=angry&&tp>.5&&!drinking;
+  const L=hx+5+off,Rr=hx+16+off;
+  if(eb){R(L-1,20,2,1,'#20140e');R(L+1,21,4,1,'#20140e');R(Rr,21,4,1,'#20140e');R(Rr+4,20,2,1,'#20140e');}
+  else{R(L,21,5,1,'#20140e');R(Rr,21,5,1,'#20140e');}
+  if(f===15||drinking){R(L,24,5,1,'#2a1a12');R(Rr,24,5,1,'#2a1a12');}
+  else{const look=tp<.5?3:1;
+    R(L,23,5,2,'#efe4d8');R(Rr,23,5,2,'#efe4d8');R(L+look,23,2,2,'#160f0b');R(Rr+look,23,2,2,'#160f0b');
+    if(!eb){R(L,23,5,1,skinD);R(Rr,23,5,1,skinD);}}
+  R(hx+11+off,24,3,5,skinD);R(hx+10+off,28,5,1,skinD);
+  R(hx+6+off,30,14,2,'#110b08');
+  // boca
+  const mx=hx+10+off;
+  if(drinking)R(mx+2,33,2,2,'#5a1818');
+  else{const open=S.talkT>0&&(f%4<2);R(mx,33,6,open?3:1,'#5a1818');if(open)R(mx+1,33,4,1,'#e8e0d6');}
+  // achocolatado no canudinho (16 frames: sobe, aperta a caixinha, chupa)
+  if(drinking){
+    const sip=[0,0,0,1,1,1,1,0,0,0,0,1,1,1,1,0][f],sq=(f>=4&&f<=6)||(f>=12&&f<=14)?1:0;
+    const bx=hx+17;
+    R(bx+2,40,8,17,skin);R(bx,37,9,4,skin);
+    R(bx+sq,27+sip,8-sq*2,11,'#6b3a1a');R(bx+sq,27+sip,8-sq*2,1,'#8a5226');
+    R(bx+sq,30+sip,8-sq*2,3,'#ffd23f');R(bx+1+sq,31+sip,6-sq*2,1,'#d4402e');
+    R(bx+1,26+sip,1,1,'#f4f4f4');R(bx,27+sip,1,1,'#f4f4f4');R(bx-1,28+sip,1,1,'#f4f4f4');R(bx-2,29+sip,1,1,'#f4f4f4');R(bx-3,30+sip,1,1,'#f4f4f4');R(mx+3,33,1,1,'#f4f4f4');
+    R(bx-1,33+sip,3,4,skin);R(bx+7,32+sip,2,5,skin);
+  }
+  if(S.raiva>55&&tp>.5&&!drinking){g.fillStyle='rgba(255,20,30,'+((S.raiva-55)/180)+')';g.fillRect(hx,16,26,14);}
+  g.restore();
+  R(X-1,Y-1,W+2,1,'#9a7bff');R(X-1,Y+H,W+2,1,'#9a7bff');R(X-1,Y,1,H,'#9a7bff');R(X+W,Y,1,H,'#9a7bff');
+}
+
+/* ---------- conversando com o chat: live de DJ de fundo ---------- */
+function bgDJ(f){
+  R(0,0,200,120,'#140b05');R(0,0,200,22,'#2a170a');R(0,22,200,30,'#1f1107');
+  g.fillStyle='rgba(255,190,110,.08)';g.fillRect(60,0,140,92);
+  const sw=Math.sin(f/16*Math.PI*2);
+  [[72,1],[112,-1],[152,1],[190,-1]].forEach(([x,d])=>{
+    g.fillStyle='rgba(255,210,140,.11)';
+    for(let y=5;y<92;y+=3){const w=1+y/6,c=x+d*sw*y/5;g.fillRect(Math.round(c-w/2),y,Math.round(w),3);}
+    R(x-2,1,5,4,'#3a2a1a');R(x-1,4,3,2,'#fff6d8');
+  });
+  for(let i=0;i<13;i++){const x=66+i*10,by=((f>>2)+i)%2?-1:0;R(x+1,58+by,5,5,'#0c0704');R(x,63+by,7,12,'#0c0704');}
+  // DJ (balança a cabeça no ritmo)
+  const beat=f%4<2?0:1,scr=[0,1,2,1,0,-1,-2,-1][f%8];
+  R(137,52+beat,8,8,'#7a5038');R(137,51+beat,8,2,'#140c08');R(136,54+beat,1,3,'#140c08');
+  R(132,60+beat,18,18,'#141414');R(135,66+beat,12,3,'#cfc8b4');R(136,70+beat,10,1,'#cfc8b4');R(138,72+beat,6,1,'#cfc8b4');
+  R(125,64+beat,8,3,'#141414');R(121+scr,73,4,3,'#7a5038');
+  R(149,64+beat,6,3,'#141414');R(151,72+(f%2),4,3,'#7a5038');
+  // mesa, CDJs e mixer piscando
+  R(100,78,100,4,'#2c2c33');R(100,82,100,14,'#151519');
+  R(108,76,18,4,'#a9a9b0');R(172,76,18,4,'#a9a9b0');R(108+(f%16),77,1,2,'#222');R(172+((f+8)%16),77,1,2,'#222');
+  const pads=['#ff3f8a','#3fd0ff','#9cff3f','#ffd23f'];
+  for(let i=0;i<8;i++)R(136+i*3,76,2,2,pads[((f>>1)+i)%4]);
+  R(104,84,4,1,'#3fd0ff');R(188,84,4,1,'#ff3f8a');
+  // galera da frente com celular
+  for(let i=0;i<12;i++){const x=66+i*12,by=((f>>2)+i)%2?-1:0;R(x+1,99+by,7,7,'#070403');R(x-2,106+by,13,14,'#070403');
+    if(i%4===1){R(x+7,92+by,2,4,(f>>2)%2?'#7fd0ff':'#bfe8ff');}}
+}
+
+function glitch(){for(let i=0;i<10;i++){g.fillStyle=pick(['rgba(255,60,200,.5)','rgba(60,255,200,.4)','rgba(255,255,255,.35)','rgba(0,0,0,.7)']);g.fillRect(0,Math.random()*120|0,200,1+Math.random()*4|0);}}
+
+/* ---------- loop ---------- */
+let last=performance.now(),hudT=0;
+function update(dt){
+  S.t+=dt;
+  if(paused)return;
+  if(S.running&&level()>S.lvl){S.lvl=level();toast('NÍVEL '+(S.lvl+1)+': ele tá mais esperto');chat('','Nível '+(S.lvl+1)+': o Jacaré tá virando mais rápido e às vezes do nada.',{sys:true});}
+  if(S.running){
+    if(S.drinkT>0){S.drinkT-=dt;S.raiva=Math.max(0,S.raiva-8*dt);S.att='jogando';S.attT=0;}
+    else{S.drinkCD-=dt*(S.raiva>50?2:1);if(S.drinkCD<=0&&S.att==='jogando'&&S.switchT<=0){S.drinkCD=rand(12,18);S.drinkT=3.6;say(pick(DRINK_LINES));toast('Tomando achocolatado: pode mandar!');}}
+    S.bordT-=dt;
+    if(S.bordT<=0&&S.talkT<=0&&S.drinkT<=0){S.bordT=S.server==='papo'?rand(4,8):rand(8,15);const o=outfit();say(Math.random()<(S.server==='papo'?.55:.3)?pick(MONEY):pick(BORDOES.all.concat(BORDOES[o]||[],BORDOES[o]||[])));}
+  }
+  S.attT+=dt;
+  if(S.att==='jogando'){if(S.attT>=S.attDur){S.att='virando';S.attT=0;const sud=Math.random()<Math.min(.55,.04+.07*level()+(S.server==='papo'?.1:0));S.attDur=sud?.06:Math.max(.3,.95-.08*level());S.fake=!sud&&Math.random()<(S.server==='papo'?.1:.25);}}
+  else if(S.att==='virando'){const p=S.attT/S.attDur;
+    if(S.fake&&p>.45){S.att='voltando';S.attT=0;S.attDur=.3;if(S.running&&Math.random()<.5)viewerSay('quase olhou kkkk');}
+    else if(p>=1){S.att='lendo';S.attT=0;S.attDur=(S.server==='papo'?rand(2,3.4):rand(1.2,2.4))*(1+.08*level());}}
+  else if(S.att==='lendo'){if(S.attT>=S.attDur){S.att='voltando';S.attT=0;S.attDur=.35;}}
+  else if(S.attT>=S.attDur)nextJogando();
+
+  if(S.running){
+    S.elapsed+=dt;S.pts+=dt;
+    if(S.att==='jogando')S.raiva=Math.max(0,S.raiva-2.5*dt);
+    if(S.timeoutLeft>0){S.timeoutLeft-=dt;if(S.timeoutLeft<=0){S.timeoutLeft=0;updateButtons();chat('','feitola pode falar de novo.',{sys:true});}}
+    S.serverT+=dt;if(S.serverT>32){S.serverT=0;let to;if(S.server==='papo'){to=S.nextRP;S.nextRP=to==='capital'?'trueblood':'capital';}else to='papo';startSwitch(to);chat('',to==='papo'?'jacarepereira saiu do RP pra conversar com o chat.':'jacarepereira está entrando no servidor...',{sys:true});}
+  }
+  if(S.server==='capital'&&S.switchT<=0){S.roleT+=dt;if(S.roleT>22){S.roleT=0;S.role=(S.role+1)%3;S.switchT=.5;S.switched=true;
+    chat('','jacarepereira trocou de personagem: '+ROLES[S.role]+'.',{sys:true});}}
+  S.volume=Math.min(100,S.volume+4*dt);
+  if(S.talkT>0){S.talkT-=dt;if(S.talkT<=0)bubble.hidden=true;}
+  if(toastT>0){toastT-=dt;if(toastT<=0)toastEl.hidden=true;}
+  S.charX+=S.charDir*11*dt;if(S.charX<96){S.charX=96;S.charDir=1;}if(S.charX>166){S.charX=166;S.charDir=-1;}
+  if(S.switchT>0){S.switchT-=dt;if(!S.switched&&S.switchT<.45){S.switched=true;S.server=S.switchTo;S.serverT=0;S.roleT=0;S.drinkT=0;nextJogando();updateButtons();
+      if(S.running)setTimeout(()=>S.running&&say({trueblood:'SOU UM VAMPIRO, VOU PEGAR MINHA PRESA... AUUUUU!',capital:'Capital, bom dia. Voltei.',papo:'Bora conversar um pouco, chat. Botei uma musiquinha.'}[S.server]),300);}}
+  S.chatT-=dt;if(S.chatT<=0){S.chatT=rand(.7,1.8);viewerSay(pick(CHATTER));if(Math.random()<.06)modSay('sem spam no chat, galera');}
+  if(Math.random()<dt*.5)S.viewers=clamp(S.viewers+(Math.random()*30-14|0),900,4000);
+}
+function draw(){
+  const f=Math.floor(S.t*12)%16,out=outfit();
+  ({policial:bgPolicial,prefeito:bgPrefeito,bandido:bgBandido,vampiro:bgTrueblood,papo:bgDJ})[out](f);
+  if(out!=='papo')drawChar(S.charX,out==='policial'?104:102,f,out,S.charDir);
+  drawCam(f);
+  if(S.switchT>0)glitch();
+}
+function loop(now){
+  const dt=Math.min(.05,(now-last)/1000);last=now;
+  update(dt);draw();
+  hudT-=dt;if(hudT<=0){hudT=.1;updateHud();}
+  requestAnimationFrame(loop);
+}
+$('sBest').textContent=best;
+['salve jacaré','bom dia chat','o homem tá on','fala baixo kkkk'].forEach((t,i)=>{const v=VIEWERS[i];chat(v[0],t,{color:v[1]});});
+updateButtons();updateHud();requestAnimationFrame(loop);
+})();
+</script>
